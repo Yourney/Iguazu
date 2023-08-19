@@ -51,41 +51,41 @@ public enum AirspaceAltitude: Equatable {
     case agl(Altitude)
     case msl(Altitude)
     case fl(Int)
-
+    
     init?(_ string: String) {
         let lowercase = string.lowercased()
         if lowercase == "gnd" || lowercase == "sfc" {
             self = .surface
             return
         }
-
+        
         let impliedMSLString: String
         if let mslRange = lowercase.range(of: "msl") {
             impliedMSLString = lowercase.replacingCharacters(in: mslRange, with: "")
         } else {
             impliedMSLString = lowercase
         }
-
+        
         guard let value = Int(impliedMSLString.trimmingCharacters(in: CharacterSet.decimalDigits.inverted).trimmingCharacters(in: .whitespaces)) else { return nil }
-
+        
         if impliedMSLString.hasPrefix("fl") {
             self = .fl(value)
             return
         }
-
+        
         let unit: UnitLength
-
+        
         if impliedMSLString.contains("m") {
             unit = .meters
         } else {
             unit = .feet
         }
-
+        
         if impliedMSLString.hasSuffix("agl") {
             self = .agl(Altitude(value: Double(value), unit: unit))
             return
         }
-
+        
         self = .msl(Altitude(value: Double(value), unit: unit))
         return
     }
@@ -97,25 +97,25 @@ extension AirspaceAltitude: Comparable {
     /// Comparisons with surface and especailly AGL are programmer error!!!
     public static func < (lhs: AirspaceAltitude, rhs: AirspaceAltitude) -> Bool {
         switch (lhs, rhs) {
-        case (.surface, _):
-            return true
-        case (_, .surface):
-            return false
-        case (.fl(let a1), .fl(let a2)):
-            return a1 < a2
-        case (.msl(let a1), .msl(let a2)):
-            return a1 < a2
-        case (.msl(let msl), .fl(let fl)):
-            return msl.converted(to: .feet).value < Double(fl * 100)
-        case (.fl(let fl), .msl(let msl)):
-            return Double(fl*100) < msl.converted(to: .feet).value
-        case (.agl(_), .fl(_)):
-            return true
-        case (.fl(_), .agl(_)):
-            return false
-        default:
-            assertionFailure("Compare only makes sense for comparing FL and MSL. Comparisons with surface and AGL are programmer error!!!")
-            return false
+            case (.surface, _):
+                return true
+            case (_, .surface):
+                return false
+            case (.fl(let a1), .fl(let a2)):
+                return a1 < a2
+            case (.msl(let a1), .msl(let a2)):
+                return a1 < a2
+            case (.msl(let msl), .fl(let fl)):
+                return msl.converted(to: .feet).value < Double(fl * 100)
+            case (.fl(let fl), .msl(let msl)):
+                return Double(fl*100) < msl.converted(to: .feet).value
+            case (.agl(_), .fl(_)):
+                return true
+            case (.fl(_), .agl(_)):
+                return false
+            default:
+                assertionFailure("Compare only makes sense for comparing FL and MSL. Comparisons with surface and AGL are programmer error!!!")
+                return false
         }
     }
 }
@@ -128,7 +128,7 @@ public struct Airspace: Equatable {
     public let labelCoordinates: [CLLocationCoordinate2D]?
     public let polygonCoordinates: [CLLocationCoordinate2D]
     public var sourceIdentifier: String?
-
+    
     public init(name: String, class c: AirspaceClass, floor: AirspaceAltitude, ceiling: AirspaceAltitude, polygon: [CLLocationCoordinate2D], labelCoordinates: [CLLocationCoordinate2D]? = nil) {
         self.airspaceClass = c
         self.ceiling = ceiling
@@ -141,20 +141,20 @@ public struct Airspace: Equatable {
 
 public final class OpenAirParser {
     enum OpenAirParserError: Error, Equatable {
-
+        
     }
-
+    
     public init() {}
-
+    
     public func airSpacesByClass(from openAirString: String, sourceIdentifier: String?) -> AirspacesByClassDictionary? {
         let lines = openAirString.components(separatedBy: .newlines)
-
+        
         var airSpaces = AirspacesByClassDictionary()
-
+        
         var currentAirspace: AirspaceInProgress? = nil
-
+        
         var state = ParserState()
-
+        
         for line in lines {
             guard line.hasPrefix("*") == false else {
                 continue
@@ -162,15 +162,15 @@ public final class OpenAirParser {
             guard line.utf8.count > 1 else {
                 continue
             }
-
+            
             guard let firstWhiteSpace = line.rangeOfCharacter(from: .whitespaces) else {
                 continue
             }
-
+            
             let prefix = line[line.startIndex ..< firstWhiteSpace.lowerBound]
             let value = line[firstWhiteSpace.upperBound ..< line.endIndex]
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-
+            
             switch prefix {
                 case "AC":
                     currentAirspace.flatMap {
@@ -186,14 +186,6 @@ public final class OpenAirParser {
                     currentAirspace = AirspaceInProgress()
                     currentAirspace?.sourceIdentifier = sourceIdentifier
                     currentAirspace?.class = AirspaceClass(rawValue: value)
-                case "AY":
-                    currentAirspace?.class = AirspaceClass(rawValue: value)
-                case "AI":
-                    currentAirspace?.identifier = value
-                case "AF":
-                    currentAirspace?.frequency = value
-                case "AG":
-                    currentAirspace?.groundStation = value
                 case "AN":
                     currentAirspace?.name = value
                 case "AL":
@@ -291,11 +283,24 @@ public final class OpenAirParser {
                     let toDeg = center.bearing(to: to)
                     let coords = polygonArc(around: center, radius: radius, from: fromDeg, to: toDeg, clockwise: state.clockwise)
                     currentAirspace?.polygonCoordinates.append(contentsOf: coords)
+                    
+                    //
+                case "AY":
+                    if let newClass = AirspaceClass(rawValue: value) {
+                        currentAirspace?.class = newClass
+                    }
+                case "AI":
+                    currentAirspace?.identifier = value
+                case "AF":
+                    currentAirspace?.frequency = value
+                case "AG":
+                    currentAirspace?.groundStation = value
+                    // The extended OpenAIR formats adds additional tokens:
                 default:
                     continue
             }
         }
-
+        
         currentAirspace.flatMap {
             $0.validAirspace.flatMap { asp in
                 guard asp.floor < .fl(100) else { return }
@@ -304,10 +309,10 @@ public final class OpenAirParser {
                 airSpaces[asp.airspaceClass] = list
             }
         }
-
+        
         return airSpaces
     }
-
+    
     public func airSpaces(from openAirString: String, sourceIdentifier: String?) -> [Airspace]? {
         guard let airspaces = self.airSpacesByClass(from: openAirString, sourceIdentifier: sourceIdentifier) else { return nil }
         let flatAirspaces = airspaces.reduce([Airspace]()) { (res, tuple) -> [Airspace] in
@@ -315,7 +320,7 @@ public final class OpenAirParser {
         }
         return flatAirspaces.isEmpty ? nil : flatAirspaces
     }
-
+    
     public func airSpacesByClass(withContentsOf url: URL) -> AirspacesByClassDictionary? {
         var openAirString = ""
         var encoding: String.Encoding = .init(rawValue: 0)
@@ -330,10 +335,10 @@ public final class OpenAirParser {
                 return nil
             }
         }
-
+        
         return self.airSpacesByClass(from: openAirString, sourceIdentifier: url.lastPathComponent)
     }
-
+    
     public func airSpaces(withContentsOf url: URL) -> [Airspace]? {
         var openAirString = ""
         var encoding: String.Encoding = .init(rawValue: 0)
@@ -348,10 +353,10 @@ public final class OpenAirParser {
                 return nil
             }
         }
-
+        
         return self.airSpaces(from: openAirString, sourceIdentifier: url.lastPathComponent)
     }
-
+    
     private func coordinate<S: StringProtocol>(from string: S) -> CLLocationCoordinate2D? {
         let upperCased = string.uppercased()
         let scanner = Scanner(string: upperCased)
@@ -362,9 +367,9 @@ public final class OpenAirParser {
             print("could not find N/S in coordinate string")
             return nil
         }
-
+        
         let latComponents = latString.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: ":")
-
+        
         guard
             var latitude = latComponents.degree,
             latitude <= 90.0
@@ -372,27 +377,27 @@ public final class OpenAirParser {
             assertionFailure("invalid latitude for \"\(string)\"; \(dump(latComponents))")
             return nil
         }
-
+        
         guard let latHemisphere = scanner.scanCharacters(from: .northSouth) else {
             assertionFailure("could not find N/S hemisphere")
             return nil
         }
-
+        
         if latHemisphere == "S" { latitude = -1.0 * latitude }
-
+        
         guard let lngString = scanner.scanUpToCharacters(from: .eastWest) else {
             assertionFailure("could not find EW in coordinate string")
             return nil
         }
-
+        
         guard let lngHemisphere = scanner.scanCharacters(from: .eastWest) else {
             assertionFailure("could not find E/W hemisphere")
             return nil
         }
-
+        
         let lngComponents = lngString.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: ":")
-
-
+        
+        
         guard
             var longitude = lngComponents.degree,
             longitude <= 180.0
@@ -400,44 +405,44 @@ public final class OpenAirParser {
             assertionFailure("invalid longitude for \"\(string)\"; \(dump(lngComponents))")
             return nil
         }
-
+        
         if lngHemisphere == "W" { longitude = -1.0 * longitude }
-
+        
         return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
-
+    
     private func polygonArc(around center: CLLocationCoordinate2D, radius: CLLocationDistance, from: CLLocationDegrees, to: CLLocationDegrees, clockwise: Bool) -> [CLLocationCoordinate2D] {
         let resolution = 5.0
-
+        
         let sign = clockwise ? 1.0 : -1.0
-
+        
         let start = from
-
+        
         var end = (to == from) ? from+360.0 : to
-
+        
         if (clockwise && to < from ) {
             end += 360.0
         }
-
+        
         if (!clockwise && to > from) {
             end -= 360.0
         }
-
+        
         let range = fabs(end - start)
         let count = ceil(range/resolution)
         let step = sign*range/count
-
+        
         let coordinates = stride(from: start, through: end, by: step)
             .map { degree in center.coordinate(at: radius, direction: degree) }
-
+        
         return coordinates
     }
-
+    
     private struct ParserState {
         var x: CLLocationCoordinate2D?
         var clockwise = true
     }
-
+    
     private struct AirspaceInProgress {
         var `class`: AirspaceClass? = nil
         var ceiling: AirspaceAltitude? = nil
@@ -460,7 +465,7 @@ public final class OpenAirParser {
                   let last = polygonCoordinates.last else {
                 return nil
             }
-
+            
             var coords = polygonCoordinates
             if first != last {
                 coords.append(first)
@@ -475,18 +480,18 @@ public final class OpenAirParser {
 extension AirspaceAltitude {
     var geoJsonAltitude: Int {
         switch self {
-        case .surface:
-            return 0
-        case .fl(let level):
-            let flMeasure = Measurement(value: 100.0*Double(level), unit: UnitLength.feet).converted(to: .meters)
-            let intMeters = Int(flMeasure.value.rounded())
-            return intMeters
-        case .agl(let alt):
-            let intAGL = Int(alt.converted(to: .meters).value)
-            return intAGL
-        case .msl(let alt):
-            let intMSL = Int(alt.converted(to: .meters).value)
-            return intMSL
+            case .surface:
+                return 0
+            case .fl(let level):
+                let flMeasure = Measurement(value: 100.0*Double(level), unit: UnitLength.feet).converted(to: .meters)
+                let intMeters = Int(flMeasure.value.rounded())
+                return intMeters
+            case .agl(let alt):
+                let intAGL = Int(alt.converted(to: .meters).value)
+                return intAGL
+            case .msl(let alt):
+                let intMSL = Int(alt.converted(to: .meters).value)
+                return intMSL
         }
     }
 }
@@ -494,7 +499,7 @@ extension AirspaceAltitude {
 extension Airspace: GeoJsonEncodable {
     public var geoJsonString: String? {
         let coordinatesArray: [[Double]] = (self.polygonCoordinates+[self.polygonCoordinates[0]]).reversed().map { [$0.longitude, $0.latitude] }
-
+        
         let dict: NSDictionary = [
             "type": "Feature",
             "properties": [
@@ -502,17 +507,17 @@ extension Airspace: GeoJsonEncodable {
                 "type": self.airspaceClass.rawValue as NSString,
                 "floor": self.floor.geoJsonAltitude,
                 "ceiling": self.ceiling.geoJsonAltitude,
-                ] as NSDictionary,
+            ] as NSDictionary,
             "geometry": [
                 "type": "Polygon" as NSString,
                 "coordinates": [ coordinatesArray as NSArray ] as NSArray,
-                ] as NSDictionary
+            ] as NSDictionary
         ]
-
+        
         guard JSONSerialization.isValidJSONObject(dict) else { return nil }
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: []) else { return nil }
         return String(data: data, encoding: .utf8)
-
+        
     }
 }
 
