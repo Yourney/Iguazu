@@ -24,6 +24,8 @@ public enum AirspaceClass: String {
     case RadioMandatoryZone = "RMZ"
     case thermalHotspot
     case thermalBadspot
+    case recreational = "AERIAL_SPORTING_RECREATIONAL"
+    case glidingSector = "GLIDING_SECTOR"
 }
 
 public typealias AirspacesByClassDictionary = [AirspaceClass: [Airspace]]
@@ -185,14 +187,15 @@ public final class OpenAirParser {
                     currentAirspace?.sourceIdentifier = sourceIdentifier
                     currentAirspace?.class = AirspaceClass(rawValue: value)
                 case "AY":
-                    if value == "TMZ" {
-                        currentAirspace?.class = AirspaceClass.TransponderMandatoryZone
-                    }
+                    currentAirspace?.class = AirspaceClass(rawValue: value)
                 case "AI":
                     currentAirspace?.identifier = value
+                case "AF":
+                    currentAirspace?.frequency = value
+                case "AG":
+                    currentAirspace?.groundStation = value
                 case "AN":
                     currentAirspace?.name = value
-                    print(value)
                 case "AL":
                     currentAirspace?.floor = AirspaceAltitude(value)
                 case "AH":
@@ -444,6 +447,8 @@ public final class OpenAirParser {
         var polygonCoordinates = [CLLocationCoordinate2D]()
         var sourceIdentifier: String? = nil
         var identifier: String?
+        var frequency: String?
+        var groundStation: String?
         
         var validAirspace: Airspace? {
             guard let klass = self.class,
