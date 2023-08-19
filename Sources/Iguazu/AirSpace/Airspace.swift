@@ -154,128 +154,142 @@ public final class OpenAirParser {
         var state = ParserState()
 
         for line in lines {
-            guard line.utf8.count > 1 else { continue }
+            guard line.hasPrefix("*") == false else {
+                continue
+            }
+            guard line.utf8.count > 1 else {
+                continue
+            }
 
-            guard let firstWhiteSpace = line.rangeOfCharacter(from: .whitespaces) else { continue }
+            guard let firstWhiteSpace = line.rangeOfCharacter(from: .whitespaces) else {
+                continue
+            }
 
             let prefix = line[line.startIndex ..< firstWhiteSpace.lowerBound]
             let value = line[firstWhiteSpace.upperBound ..< line.endIndex]
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
             switch prefix {
-            case "AC":
-                currentAirspace.flatMap {
-                    $0.validAirspace.flatMap { asp in
-                        guard asp.floor < .fl(100) else { return }
-                        var list = airSpaces[asp.airspaceClass] ?? [Airspace]()
-                        list.append(asp)
-                        airSpaces[asp.airspaceClass] = list
+                case "AC":
+                    currentAirspace.flatMap {
+                        $0.validAirspace.flatMap { asp in
+                            guard asp.floor < .fl(100) else { return }
+                            var list = airSpaces[asp.airspaceClass] ?? [Airspace]()
+                            list.append(asp)
+                            airSpaces[asp.airspaceClass] = list
+                        }
                     }
-                }
-
-                state = ParserState()
-                currentAirspace = AirspaceInProgress()
-                currentAirspace?.sourceIdentifier = sourceIdentifier
-                currentAirspace?.class = AirspaceClass(rawValue: value)
-            case "AN":
-                currentAirspace?.name = value
-            case "AL":
-                currentAirspace?.floor = AirspaceAltitude(value)
-            case "AH":
-                currentAirspace?.ceiling = AirspaceAltitude(value)
-            case "AT":
-                guard let coord = coordinate(from: value) else {
-                    assertionFailure("got unparseable label coordinate: \(line)")
-                    currentAirspace = nil
-                    continue
-                }
-                if currentAirspace?.labelCoordinates == nil { currentAirspace?.labelCoordinates = [CLLocationCoordinate2D]() }
-                currentAirspace?.labelCoordinates?.append(coord)
-            case "V":
-                if value.hasPrefix("X") {
-                    guard let eqRange = value.range(of: "=") else { assertionFailure("malformed X"); return nil }
-                    state.x = coordinate(from: value.suffix(from: eqRange.upperBound))
-                } else if value.hasPrefix("D") {
-                    guard let signRange = value.rangeOfCharacter(from: .plusMinus) else {
-                        assertionFailure("malformed direction line: \(line)")
+                    
+                    state = ParserState()
+                    currentAirspace = AirspaceInProgress()
+                    currentAirspace?.sourceIdentifier = sourceIdentifier
+                    currentAirspace?.class = AirspaceClass(rawValue: value)
+                case "AY":
+                    if value == "TMZ" {
+                        currentAirspace?.class = AirspaceClass.TransponderMandatoryZone
+                    }
+                case "AI":
+                    currentAirspace?.identifier = value
+                case "AN":
+                    currentAirspace?.name = value
+                    print(value)
+                case "AL":
+                    currentAirspace?.floor = AirspaceAltitude(value)
+                case "AH":
+                    currentAirspace?.ceiling = AirspaceAltitude(value)
+                case "AT":
+                    guard let coord = coordinate(from: value) else {
+                        assertionFailure("got unparseable label coordinate: \(line)")
                         currentAirspace = nil
                         continue
                     }
-                    let sign = value[signRange.lowerBound ..< signRange.upperBound]
-                    state.clockwise = (sign == "+")
-                } else {
+                    if currentAirspace?.labelCoordinates == nil { currentAirspace?.labelCoordinates = [CLLocationCoordinate2D]() }
+                    currentAirspace?.labelCoordinates?.append(coord)
+                case "V":
+                    if value.hasPrefix("X") {
+                        guard let eqRange = value.range(of: "=") else { assertionFailure("malformed X"); return nil }
+                        state.x = coordinate(from: value.suffix(from: eqRange.upperBound))
+                    } else if value.hasPrefix("D") {
+                        guard let signRange = value.rangeOfCharacter(from: .plusMinus) else {
+                            assertionFailure("malformed direction line: \(line)")
+                            currentAirspace = nil
+                            continue
+                        }
+                        let sign = value[signRange.lowerBound ..< signRange.upperBound]
+                        state.clockwise = (sign == "+")
+                    } else {
+                        continue
+                    }
+                case "DC":
+                    //*    DC radius; draw a circle (center taken from the previous V X=...  record, radius in nm
+                    guard let center = state.x else {
+                        assertionFailure("got circle but got no center: \(line)")
+                        currentAirspace = nil
+                        continue
+                    }
+                    guard let radiusInNM = Double(value) else {
+                        assertionFailure("got circle but got no radius: \(line)")
+                        currentAirspace = nil
+                        continue
+                    }
+                    let radius = Measurement(value: radiusInNM, unit: UnitLength.nauticalMiles).converted(to: .meters)
+                    currentAirspace?.polygonCoordinates.append(contentsOf: polygonArc(around: center, radius: radius.value, from: 0.0, to: 0.0, clockwise: true))
+                case "DP":
+                    //*    DP coordinate; add polygon pointC
+                    guard let coord = coordinate(from: value) else {
+                        print("got unparseable polygon point: \(line)")
+                        continue
+                    }
+                    currentAirspace?.polygonCoordinates.append(coord)
+                case "DA":
+                    //*    DA radius, angleStart, angleEnd; add an arc, angles in degrees, radius in nm (set center using V X=...)
+                    guard let center = state.x else {
+                        assertionFailure("got an arc but got no center: \(line)")
+                        currentAirspace = nil
+                        continue
+                    }
+                    let numbers = value.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.compactMap(Double.init)
+                    var start = 0.0
+                    var end = 0.0
+                    guard numbers.count > 0 else {
+                        assertionFailure("Need 3 parameters for DA arc but got \(numbers.count): \(line)")
+                        currentAirspace = nil
+                        continue
+                    }
+                    if numbers.count > 1 {
+                        start = numbers[1]
+                    }
+                    
+                    if numbers.count > 2 {
+                        end = numbers[2]
+                    }
+                    let radius = Measurement(value: numbers[0], unit: UnitLength.nauticalMiles).converted(to: .meters)
+                    let coords = polygonArc(around: center, radius: radius.value, from: start, to: end, clockwise: state.clockwise)
+                    currentAirspace?.polygonCoordinates.append(contentsOf: coords)
+                case "DB":
+                    //*    DB coordinate1, coordinate2; add an arc, from coordinate1 to coordinate2 (set center using V X=...)
+                    guard let center = state.x else {
+                        assertionFailure("got an arc but got no center: \(line)")
+                        currentAirspace = nil
+                        continue
+                    }
+                    let fromToCoords = value.components(separatedBy: ",").compactMap(coordinate)
+                    guard fromToCoords.count == 2 else {
+                        assertionFailure("Need 2 points for DB arc but got \(fromToCoords.count): \(line)")
+                        currentAirspace = nil
+                        continue
+                    }
+                    let from = fromToCoords.first!
+                    let to = fromToCoords.last!
+                    let dist1 = center.distance(from: from)
+                    let dist2 = center.distance(from: to)
+                    let radius = 0.5 * (dist1 + dist2)
+                    let fromDeg = center.bearing(to: from)
+                    let toDeg = center.bearing(to: to)
+                    let coords = polygonArc(around: center, radius: radius, from: fromDeg, to: toDeg, clockwise: state.clockwise)
+                    currentAirspace?.polygonCoordinates.append(contentsOf: coords)
+                default:
                     continue
-                }
-            case "DC":
-                //*    DC radius; draw a circle (center taken from the previous V X=...  record, radius in nm
-                guard let center = state.x else {
-                    assertionFailure("got circle but got no center: \(line)")
-                    currentAirspace = nil
-                    continue
-                }
-                guard let radiusInNM = Double(value) else {
-                    assertionFailure("got circle but got no radius: \(line)")
-                    currentAirspace = nil
-                    continue
-                }
-                let radius = Measurement(value: radiusInNM, unit: UnitLength.nauticalMiles).converted(to: .meters)
-                currentAirspace?.polygonCoordinates.append(contentsOf: polygonArc(around: center, radius: radius.value, from: 0.0, to: 0.0, clockwise: true))
-            case "DP":
-                //*    DP coordinate; add polygon pointC
-                guard let coord = coordinate(from: value) else {
-                    print("got unparseable polygon point: \(line)")
-                    continue
-                }
-                currentAirspace?.polygonCoordinates.append(coord)
-            case "DA":
-                //*    DA radius, angleStart, angleEnd; add an arc, angles in degrees, radius in nm (set center using V X=...)
-                guard let center = state.x else {
-                    assertionFailure("got an arc but got no center: \(line)")
-                    currentAirspace = nil
-                    continue
-                }
-                let numbers = value.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.compactMap(Double.init)
-                var start = 0.0
-                var end = 0.0
-                guard numbers.count > 0 else {
-                    assertionFailure("Need 3 parameters for DA arc but got \(numbers.count): \(line)")
-                    currentAirspace = nil
-                    continue
-                }
-                if numbers.count > 1 {
-                    start = numbers[1]
-                }
-
-                if numbers.count > 2 {
-                    end = numbers[2]
-                }
-                let radius = Measurement(value: numbers[0], unit: UnitLength.nauticalMiles).converted(to: .meters)
-                let coords = polygonArc(around: center, radius: radius.value, from: start, to: end, clockwise: state.clockwise)
-                currentAirspace?.polygonCoordinates.append(contentsOf: coords)
-            case "DB":
-                //*    DB coordinate1, coordinate2; add an arc, from coordinate1 to coordinate2 (set center using V X=...)
-                guard let center = state.x else {
-                    assertionFailure("got an arc but got no center: \(line)")
-                    currentAirspace = nil
-                    continue
-                }
-                let fromToCoords = value.components(separatedBy: ",").compactMap(coordinate)
-                guard fromToCoords.count == 2 else {
-                    assertionFailure("Need 2 points for DB arc but got \(fromToCoords.count): \(line)")
-                    currentAirspace = nil
-                    continue
-                }
-                let from = fromToCoords.first!
-                let to = fromToCoords.last!
-                let dist1 = center.distance(from: from)
-                let dist2 = center.distance(from: to)
-                let radius = 0.5 * (dist1 + dist2)
-                let fromDeg = center.bearing(to: from)
-                let toDeg = center.bearing(to: to)
-                let coords = polygonArc(around: center, radius: radius, from: fromDeg, to: toDeg, clockwise: state.clockwise)
-                currentAirspace?.polygonCoordinates.append(contentsOf: coords)
-            default:
-                continue
             }
         }
 
@@ -429,15 +443,18 @@ public final class OpenAirParser {
         var labelCoordinates: [CLLocationCoordinate2D]? = nil
         var polygonCoordinates = [CLLocationCoordinate2D]()
         var sourceIdentifier: String? = nil
-
+        var identifier: String?
+        
         var validAirspace: Airspace? {
             guard let klass = self.class,
-                let ceiling = self.ceiling,
-                let floor = self.floor,
-                let name = self.name,
-                polygonCoordinates.count > 2,
-                let first = polygonCoordinates.first,
-                let last = polygonCoordinates.last else { return nil }
+                  let ceiling = self.ceiling,
+                  let floor = self.floor,
+                  let name = self.name,
+                  polygonCoordinates.count > 2,
+                  let first = polygonCoordinates.first,
+                  let last = polygonCoordinates.last else {
+                return nil
+            }
 
             var coords = polygonCoordinates
             if first != last {
