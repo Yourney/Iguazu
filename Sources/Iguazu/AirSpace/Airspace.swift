@@ -10,22 +10,24 @@ import Foundation
 import CoreLocation
 
 public enum AirspaceClass: String {
-    case Alpha = "A"
-    case Bravo = "B"
-    case Charlie = "C"
-    case Delta = "D"
-    case Restricted = "R"
-    case Danger = "Q"
-    case Prohibited = "P"
-    case GliderProhibited = "GP"
+    case alpha = "A"
+    case bravo = "B"
+    case charlie = "C"
+    case delta = "D"
+    case echo = "E"
+    case restricted = "R"
+    case danger = "Q"
+    case prohibited = "P"
+    case gliderProhibited = "GP"
     case CTR = "CTR"
-    case WaveWindow = "W"
-    case TransponderMandatoryZone = "TMZ"
-    case RadioMandatoryZone = "RMZ"
+    case waveWindow = "W"
+    case transponderMandatoryZone = "TMZ"
+    case radioMandatoryZone = "RMZ"
     case thermalHotspot
     case thermalBadspot
     case recreational = "AERIAL_SPORTING_RECREATIONAL"
     case glidingSector = "GLIDING_SECTOR"
+    case extendedRestricted = "RESTRICTED"   // Extended OpenAIP uses this for AY tag
 }
 
 public typealias AirspacesByClassDictionary = [AirspaceClass: [Airspace]]

@@ -50,15 +50,15 @@ public extension AirspaceClass {
 #if os(OSX)
     var color: NSColor {
         switch self {
-        case .Danger:
+        case .danger:
             return .black
-        case .CTR, .GliderProhibited, .Prohibited, .Restricted:
+        case .CTR, .gliderProhibited, .prohibited, .restricted, .extendedRestricted:
             return .red
         case .Delta:
             return .green
-        case .Bravo, .Charlie, .RadioMandatoryZone:
+        case .bravo, .charlie, .radioMandatoryZone:
             return NSColor(red: 0.0, green: 0.6, blue: 1.0, alpha: 1.0)
-        case .TransponderMandatoryZone:
+        case .transponderMandatoryZone:
             return .gray
         default:
             return .purple
@@ -67,13 +67,13 @@ public extension AirspaceClass {
 #elseif os(iOS)
     var color: UIColor {
         switch self {
-        case .Danger, .GliderProhibited, .Prohibited, .Restricted:
+        case .danger, .gliderProhibited, .prohibited, .restricted, .extendedRestricted:
             return .red
-        case .Delta, .CTR, .Bravo, .Charlie, .RadioMandatoryZone:
+        case .delta, .CTR, .bravo, .charlie, .radioMandatoryZone:
             return UIColor(red: 0.0, green: 0.12, blue: 0.67, alpha: 1.0)
-        case .TransponderMandatoryZone:
+        case .transponderMandatoryZone:
             return .darkGray
-        case .WaveWindow:
+        case .waveWindow, .glidingSector:
             return .green
         default:
             return .purple
